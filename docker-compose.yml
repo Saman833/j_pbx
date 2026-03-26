@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+
+  # ─────────────────────────────────────────────
+  # Jambonz - The SIP Gateway / Media Server
+  # Handles SIP registration with Placetel (fpbx.de)
+  # ─────────────────────────────────────────────
+  jambonz:
+    image: jambonz/jambonz-mini:latest
+    container_name: jambonz
+    network_mode: host           # Required for SIP/RTP - must use host networking
+    restart: unless-stopped
+    environment:
+      # ── Jambonz Core ──
+      JAMBONZ_MYSQL_HOST: 127.0.0.1
+      JAMBONZ_MYSQL_USER: jambonz
+      JAMBONZ_MYSQL_PASSWORD: ${JAMBONZ_MYSQL_PASSWORD}
+      JAMBONZ_MYSQL_DATABASE: jambonz
+
+      # ── SIP Registration to Placetel ──
+      # Jambonz will REGISTER to fpbx.de using your Placetel credentials
+      SIP_REGISTRAR_HOST: fpbx.de
+      SIP_USERNAME: ${PLACETEL_SIP_USERNAME}
+      SIP_PASSWORD: ${PLACETEL_SIP_PASSWORD}
+      SIP_DOMAIN: fpbx.de
+
+      # ── Routing incoming calls to our app ──
+      JAMBONZ_WS_APP_URL: ws://localhost:3001
+
+      # ── Admin portal ──
+      JAMBONZ_ADMIN_PASSWORD: ${JAMBONZ_ADMIN_PASSWORD:-admin123}
+    ports:
+      - "5060:5060/udp"          # SIP UDP
+      - "5060:5060/tcp"          # SIP TCP
+      - "5061:5061/tcp"          # SIP TLS
+      - "8080:8080"              # Jambonz admin portal
+      - "10000-20000:10000-20000/udp"  # RTP media
+    volumes:
+      - jambonz_data:/home/jambonz
+    depends_on:
+      - mysql
+
+  # ─────────────────────────────────────────────
+  # MySQL - Required by Jambonz
+  # ─────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: jambonz-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${JAMBONZ_MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: jambonz
+      MYSQL_USER: jambonz
+      MYSQL_PASSWORD: ${JAMBONZ_MYSQL_PASSWORD:-jambonzpass}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+  # ─────────────────────────────────────────────
+  # Our App - Routes calls to ElevenLabs AI Agent
+  # ─────────────────────────────────────────────
+  elevenlabs-bridge:
+    build:
+      context: ./app
+    container_name: elevenlabs-bridge
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      # ── ElevenLabs ──
+      ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY}
+
+      # ── App ports ──
+      HTTP_PORT: 3000
+      WS_PORT: 3001
+    depends_on:
+      - jambonz
+
+volumes:
+  jambonz_data:
+  mysql_data:
