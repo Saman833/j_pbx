@@ -9,6 +9,25 @@ const { createEndpoint } = require('@jambonz/node-client-ws');
 
 const app = express();
 
+const lookupPublicIp = async () => {
+  const endpoints = [
+    'https://api.ipify.org',
+    'https://ifconfig.me/ip',
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const response = await fetch(url, { headers: { accept: 'text/plain' } });
+      if (!response.ok) continue;
+      const ip = (await response.text()).trim();
+      if (ip) return ip;
+    } catch (err) {
+      // Try next endpoint
+    }
+  }
+  return null;
+};
+
 /**
  * Placetel → Jambonz → ElevenLabs
  * When a call arrives on your Placetel number, Jambonz catches it
@@ -57,11 +76,15 @@ svc.on('session:new', (session) => {
 });
 
 // Health check endpoint
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'elevenlabs-bridge' });
+});
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', agent: process.env.ELEVENLABS_AGENT_ID });
 });
 
-const port = process.env.HTTP_PORT || 3000;
+const port = process.env.PORT || process.env.HTTP_PORT || 3000;
 const wsPort = process.env.WS_PORT || 3001;
 
 app.listen(port, () => {
@@ -71,4 +94,16 @@ app.listen(port, () => {
 wsServer.listen(wsPort, () => {
   console.log(`Jambonz websocket service listening on ws://localhost:${wsPort}/`);
   console.log(`Agent: ${process.env.ELEVENLABS_AGENT_ID || 'NOT SET'}`);
+
+  lookupPublicIp()
+    .then((ip) => {
+      if (ip) {
+        console.log(`Public IP: ${ip}`);
+      } else {
+        console.warn('Public IP: could not auto-detect');
+      }
+    })
+    .catch(() => {
+      console.warn('Public IP: could not auto-detect');
+    });
 });
